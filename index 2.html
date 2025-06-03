@@ -1,140 +1,137 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>🫰 Mirror Camera with Heart Particles</title>
-  <style>
-    body {
-      margin: 0;
-      overflow: hidden;
-      background: black;
-    }
-    canvas {
-      display: block;
-      position: absolute;
-      top: 0;
-      left: 0;
-    }
-    video {
-      transform: scaleX(-1);
-      display: none;
-    }
-  </style>
-</head>
-<body>
-  <video id="video" autoplay playsinline></video>
-  <canvas id="canvas"></canvas>
-
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
-
-  <script>
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-
-    let model, hands = [];
-    const hearts = [];
-
-    class Heart {
-      constructor(x, y) {
-        this.x = x;
-        this.y = y;
-        this.vx = (Math.random() - 0.5) * 2;
-        this.vy = -Math.random() * 2 - 1;
-        this.alpha = 1;
-        this.size = Math.random() * 10 + 10;
-        this.color = `hsla(${Math.random() * 360}, 80%, 70%, ${this.alpha})`;
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>🫰 p5.js Heart Particles</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: black;
       }
-      update() {
-        this.x += this.vx;
-        this.y += this.vy;
-        this.alpha -= 0.01;
-        this.color = `hsla(${Math.random() * 360}, 80%, 70%, ${this.alpha})`;
+      #status {
+        position: fixed;
+        bottom: 10px;
+        left: 10px;
+        color: white;
+        font-family: monospace;
+        background: rgba(0, 0, 0, 0.5);
+        padding: 8px;
+        border-radius: 4px;
+        max-width: 90vw;
       }
-      draw(ctx) {
-        ctx.save();
-        ctx.translate(this.x, this.y);
-        ctx.scale(this.size / 100, this.size / 100);
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.bezierCurveTo(25, -25, 50, 0, 0, 50);
-        ctx.bezierCurveTo(-50, 0, -25, -25, 0, 0);
-        ctx.fillStyle = this.color;
-        ctx.fill();
-        ctx.restore();
-      }
-      isDead() {
-        return this.alpha <= 0;
-      }
-    }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/p5/lib/p5.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/p5/lib/addons/p5.dom.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
+  </head>
+  <body>
+    <div id="status">Loading...</div>
+    <script>
+      let video;
+      let detector;
+      let hearts = [];
+      let statusDiv;
 
-    async function setupCamera() {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      video.srcObject = stream;
-      return new Promise(resolve => {
-        video.onloadedmetadata = () => {
-          resolve(video);
+      class Heart {
+        constructor(x, y) {
+          this.pos = createVector(x, y);
+          this.vel = createVector(random(-1, 1), random(-2, -1));
+          this.alpha = 255;
+          this.size = random(10, 25);
+          this.hue = random(360);
+        }
+        update() {
+          this.pos.add(this.vel);
+          this.alpha -= 2;
+        }
+        show() {
+          push();
+          translate(this.pos.x, this.pos.y);
+          scale(this.size / 100);
+          fill(this.hue, 80, 100, this.alpha / 255);
+          noStroke();
+          beginShape();
+          vertex(0, 0);
+          bezierVertex(25, -25, 50, 0, 0, 50);
+          bezierVertex(-50, 0, -25, -25, 0, 0);
+          endShape(CLOSE);
+          pop();
+        }
+        isDead() {
+          return this.alpha <= 0;
+        }
+      }
+
+      async function setupDetector() {
+        await tf.setBackend('webgl');
+        const model = handPoseDetection.SupportedModels.MediaPipeHands;
+        const detectorConfig = {
+          runtime: 'mediapipe',
+          modelType: 'lite',
+          solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/hands',
+          maxHands: 1
         };
-      });
-    }
+        detector = await handPoseDetection.createDetector(model, detectorConfig);
+        statusDiv.innerText = 'Model loaded.';
+      }
 
-    async function init() {
-      await setupCamera();
-      const detectorConfig = {
-        modelType: 'lite',
-        runtime: 'mediapipe',
-        solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/hands'
-      };
-      model = await handPoseDetection.createDetector(handPoseDetection.SupportedModels.MediaPipeHands, detectorConfig);
-      requestAnimationFrame(loop);
-    }
+      function isHeartGesture(keypoints) {
+        const thumb = keypoints.find(k => k.name === 'thumb_tip');
+        const index = keypoints.find(k => k.name === 'index_finger_tip');
+        if (!thumb || !index) return false;
+        const d = dist(thumb.x, thumb.y, index.x, index.y);
+        statusDiv.innerText = `Distance: ${nf(d, 1, 2)} | Heart Gesture: ${d < 80}`;
+        return d < 80;
+      }
 
-    function detectHeartGesture(keypoints) {
-      const thumbTip = keypoints[4];
-      const indexTip = keypoints[8];
-      const d = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
-      return d < 0.05;
-    }
-
-    async function loop() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.save();
-      ctx.scale(-1, 1);
-      ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
-      ctx.restore();
-
-      const predictions = await model.estimateHands(video, { flipHorizontal: true });
-      if (predictions.length > 0) {
-        for (const hand of predictions) {
-          const keypoints = hand.keypoints;
-          if (detectHeartGesture(keypoints)) {
-            const thumb = keypoints[4];
-            const index = keypoints[8];
-            const x = (thumb.x + index.x) / 2 * canvas.width;
-            const y = (thumb.y + index.y) / 2 * canvas.height;
-            for (let i = 0; i < 10; i++) {
-              hearts.push(new Heart(x, y));
+      async function detectHands() {
+        if (detector && video.loadedmetadata) {
+          const hands = await detector.estimateHands(video.elt, { flipHorizontal: true });
+          if (hands.length > 0) {
+            const keypoints = hands[0].keypoints;
+            if (isHeartGesture(keypoints)) {
+              const thumb = keypoints.find(k => k.name === 'thumb_tip');
+              const x = width * (thumb.x / video.width);
+              const y = height * (thumb.y / video.height);
+              for (let i = 0; i < 10; i++) {
+                hearts.push(new Heart(x, y));
+              }
             }
+          } else {
+            statusDiv.innerText = 'No hand detected';
           }
         }
       }
 
-      for (let i = hearts.length - 1; i >= 0; i--) {
-        hearts[i].update();
-        hearts[i].draw(ctx);
-        if (hearts[i].isDead()) hearts.splice(i, 1);
+      function setup() {
+        createCanvas(windowWidth, windowHeight);
+        colorMode(HSL);
+        statusDiv = select('#status').elt;
+        video = createCapture(VIDEO);
+        video.size(640, 480);
+        video.hide();
+        setupDetector();
       }
 
-      requestAnimationFrame(loop);
-    }
+      function draw() {
+        translate(width, 0);
+        scale(-1, 1);
+        image(video, 0, 0, width, height);
 
-    init();
-  </script>
-</body>
+        detectHands();
+
+        for (let i = hearts.length - 1; i >= 0; i--) {
+          hearts[i].update();
+          hearts[i].show();
+          if (hearts[i].isDead()) hearts.splice(i, 1);
+        }
+      }
+    </script>
+  </body>
 </html>
