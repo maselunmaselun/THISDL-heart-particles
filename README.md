@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🫰 Mirror Camera with Heart Particles</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: black;
+    }
+    canvas {
+      display: block;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    video {
+      transform: scaleX(-1);
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    let model, hands = [];
+    const hearts = [];
+
+    class Heart {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.vx = (Math.random() - 0.5) * 2;
+        this.vy = -Math.random() * 2 - 1;
+        this.alpha = 1;
+        this.size = Math.random() * 10 + 10;
+        this.color = `hsla(${Math.random() * 360}, 80%, 70%, ${this.alpha})`;
+      }
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.alpha -= 0.01;
+        this.color = `hsla(${Math.random() * 360}, 80%, 70%, ${this.alpha})`;
+      }
+      draw(ctx) {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.scale(this.size / 100, this.size / 100);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.bezierCurveTo(25, -25, 50, 0, 0, 50);
+        ctx.bezierCurveTo(-50, 0, -25, -25, 0, 0);
+        ctx.fillStyle = this.color;
+        ctx.fill();
+        ctx.restore();
+      }
+      isDead() {
+        return this.alpha <= 0;
+      }
+    }
+
+    async function setupCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+      return new Promise(resolve => {
+        video.onloadedmetadata = () => {
+          resolve(video);
+        };
+      });
+    }
+
+    async function init() {
+      await setupCamera();
+      const detectorConfig = {
+        modelType: 'lite',
+        runtime: 'mediapipe',
+        solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/hands'
+      };
+      model = await handPoseDetection.createDetector(handPoseDetection.SupportedModels.MediaPipeHands, detectorConfig);
+      requestAnimationFrame(loop);
+    }
+
+    function detectHeartGesture(keypoints) {
+      const thumbTip = keypoints[4];
+      const indexTip = keypoints[8];
+      const d = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+      return d < 0.05;
+    }
+
+    async function loop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+      ctx.restore();
+
+      const predictions = await model.estimateHands(video, { flipHorizontal: true });
+      if (predictions.length > 0) {
+        for (const hand of predictions) {
+          const keypoints = hand.keypoints;
+          if (detectHeartGesture(keypoints)) {
+            const thumb = keypoints[4];
+            const index = keypoints[8];
+            const x = (thumb.x + index.x) / 2 * canvas.width;
+            const y = (thumb.y + index.y) / 2 * canvas.height;
+            for (let i = 0; i < 10; i++) {
+              hearts.push(new Heart(x, y));
+            }
+          }
+        }
+      }
+
+      // update and draw hearts
+      for (let i = hearts.length - 1; i >= 0; i--) {
+        hearts[i].update();
+        hearts[i].draw(ctx);
+        if (hearts[i].isDead()) hearts.splice(i, 1);
+      }
+
+      requestAnimationFrame(loop);
+    }
+
+    init();
+  </script>
+</body>
+</html>
